@@ -1,0 +1,91 @@
+import yfinance as yf
+import numpy as np
+import matplotlib.pyplot as plt
+from google.colab import files
+
+ticker = "0050.TW"
+#0050.TW ^GSPC RICHY.BK 6568.TWO 2338.TW 1503.TW C TSLA PTN
+
+
+## EXP
+
+data = yf.download(ticker, start="2010-10-01", end="2025-01-01", auto_adjust=True)
+#data = yf.download(ticker, start="1994-02-01", end="2024-05-01", auto_adjust=True)
+#data = yf.download(ticker, start="2000-01-01", end="2025-01-01", auto_adjust=True)
+#data = yf.download(ticker, start='2000-01-01', end='2025-01-01', auto_adjust=True)
+
+data['Re'] = np.log(data['Close'] / data['Close'].shift(1))
+r = 0.017
+r_d = (1 + r) ** (1/252) - 1
+d = 252  # 滾動視窗長度
+
+f = []
+
+# 計算 f*
+lambda_ = 0.94
+for i in range(d, len(data)):
+    window_data = data['Re'][i - d:i].values
+    weights = np.array([lambda_**(d - j - 1) for j in range(d)])
+    weights = weights / weights.sum()  # 正規化
+
+    mu = np.sum(window_data * weights) * d
+    sigma = np.sqrt(np.sum(weights * (window_data - np.sum(window_data * weights))**2)) * np.sqrt(d)
+    sigma = max(sigma, 0.0001)
+
+    f_star = (mu - r) / (sigma ** 2)
+    f.append(float(f_star))
+
+# 修正 f，去掉負數
+f_new = [max(0, x) for x in f]
+f_new = [min(2, x) for x in f_new]
+
+#起始資金
+capital_e = [1]
+total_debt = [0]
+
+borrow_rate = 0.03  # 假設借錢成本為 3% 年化
+borrow_rate_d = (1 + borrow_rate) ** (1/252) - 1
+
+for i in range(len(f_new) - 1):
+  r_i = data['Re'].iloc[d + i + 1]
+  simple_return = np.exp(r_i) - 1
+
+    # 成長資本
+  if f_new[i] <= 1:
+    growth = 1 + (1 - f_new[i]) * r_d + f_new[i] * simple_return
+  else:
+    growth = 1 + f_new[i] * simple_return
+
+
+  # 新增借款
+  borrowed_today = max(0, f_new[i] - 1) * capital_e[i] * borrow_rate_d
+  # debt_today = total_debt[i] * (1 + borrow_rate_d) + borrowed_today
+  # total_debt.append(debt_today)
+  capital_e.append(capital_e[i] * growth - borrowed_today)
+
+#buy and hold 策略
+buy_hold_price = data['Close'].iloc[d + 1:].reset_index(drop=True)
+buy_hold_price = buy_hold_price / buy_hold_price.iloc[0]  # normalize to 1
+
+#fixed
+fixed = [1]
+for i in range(len(f_new) - 1):
+  fixed.append(fixed[i] * (1 + r_d))
+
+# 畫圖比較
+plt.figure(figsize=(12, 6))
+#plt.plot(f_new)
+#plt.plot(capital, label='original kelly')
+# plt.plot(capital_l, label='lineaer weighting')
+plt.plot(capital_e, label='size 50 & exp weighting')
+plt.plot(buy_hold_price.values, label='B&H', linestyle='--', color='orange')
+#plt.plot(fixed, label='fixed', color='g')
+plt.title('Tesla, Inc.')
+plt.xlabel('days')
+plt.ylabel('capital (normalized)')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+#plt.savefig("size&weighing.png")
+plt.show()
+#files.download("size&weighing.png")
